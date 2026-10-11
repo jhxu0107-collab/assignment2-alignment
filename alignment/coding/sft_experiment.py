@@ -152,7 +152,7 @@ if __name__ == "__main__":
     # filter correct answers
     parser.add_argument("--filter_correct", action="store_true")
     args = parser.parse_args()
-    random.seed(0107)
+    random.seed(107)
 
     tokenizer = AutoTokenizer.from_pretrained(MODEL_PATH)
     llm = init_vllm(MODEL_PATH, VLLM_DEVICE, seed=0)
@@ -163,9 +163,11 @@ if __name__ == "__main__":
 
     sft = read_jsonl("data/sft.jsonl")
     if args.filter_correct:
-        sft = [ex for ex in sft
-               if r1_zero_reward_fn(ex["response"], ex["ground_truth"])["answer_reward"] == 1]
+        sft = [ex for ex in read_jsonl("data/sft_with_gt.jsonl") if ex["correct"]]
         print(f"Filtered dataset size: {len(sft)}")
+    else:
+        sft = read_jsonl("data/sft.jsonl")
+    train_data = sft if args.n_examples == -1 else sft[:args.n_examples]
     train_data = sft if args.n_examples == -1 else sft[:args.n_examples]
     reward_fn = r1_zero_reward_fn
 
