@@ -149,6 +149,8 @@ if __name__ == "__main__":
     parser.add_argument("--n_sft_steps", type=int, default=200)
     parser.add_argument("--eval_every", type=int, default=25)
     parser.add_argument("--n_val", type=int, default=200)
+    # filter correct answers
+    parser.add_argument("--filter_correct", action="store_true")
     args = parser.parse_args()
     random.seed(0107)
 
@@ -160,6 +162,10 @@ if __name__ == "__main__":
     )
 
     sft = read_jsonl("data/sft.jsonl")
+    if args.filter_correct:
+        sft = [ex for ex in sft
+               if r1_zero_reward_fn(ex["response"], ex["ground_truth"])["answer_reward"] == 1]
+        print(f"Filtered dataset size: {len(sft)}")
     train_data = sft if args.n_examples == -1 else sft[:args.n_examples]
     reward_fn = r1_zero_reward_fn
 
@@ -179,7 +185,8 @@ if __name__ == "__main__":
     val_prompts, val_answers = val_prompts[:args.n_val], val_answers[:args.n_val]
 
     reward_fn = r1_zero_reward_fn
-    run_name = f"sft_n{len(train_data)}_lr{args.lr}"
+    tag = "filtered" if args.filter_correct else "full"
+    run_name = f"sft_{tag}_n{len(train_data)}_lr{args.lr}"
 
     run_sft(run_name, train_data, val_prompts, val_answers, llm, tokenizer, reward_fn, sampling_params,
             lr=args.lr, microbatch_size=args.microbatch_size, grad_accum_steps=args.grad_accum_steps,
