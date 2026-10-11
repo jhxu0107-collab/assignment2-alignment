@@ -1,0 +1,21 @@
+Metadata-Version: 2.4
+Name: alignment
+Version: 1.0.0
+Summary: CS 336 Spring 2025 Assignment 5: Alignment
+Requires-Python: <3.13,>=3.11
+Description-Content-Type: text/markdown
+Requires-Dist: accelerate>=1.5.2
+Requires-Dist: alpaca-eval
+Requires-Dist: flash-attn==2.7.4.post1
+Requires-Dist: jupyter>=1.1.1
+Requires-Dist: math-verify[antlr4-13-2]>=0.7.0
+Requires-Dist: pylatexenc==2.10
+Requires-Dist: notebook>=7.4.2
+Requires-Dist: pytest>=8.3.5
+Requires-Dist: torch
+Requires-Dist: tqdm>=4.67.1
+Requires-Dist: transformers>=4.50.0
+Requires-Dist: typer>=0.15.4
+Requires-Dist: vllm==0.7.2
+Requires-Dist: wandb>=0.19.8
+Requires-Dist: xopen>=2.0.2
