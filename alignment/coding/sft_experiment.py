@@ -1,4 +1,3 @@
-import json
 import random
 import torch
 import wandb
@@ -57,29 +56,53 @@ def init_vllm(model_id: str, device: str, seed: int, gpu_memory_utilization: flo
 
 # define experiment
 def run_sft(run_name, train_data, val_prompts, val_answers, llm, tokenizer, reward_fn,
-            sampling_params, lr, microbatch_size, grad_accum_steps, n_sft_steps, eval_every):
-    # wandb run  for each experiment
-    wandb.init(project="sft", name=run_name, reinit=True)
-    wandb.define_metric("train_step")
-    wandb.define_metric("eval_step")
-    wandb.define_metric("train/*", step_metric="train_step")
-    wandb.define_metric("eval/*", step_metric="eval_step")
+            sampling_params, lr, microbatch_size, grad_accum_steps, n_sft_steps, eval_every,
+            model=None, optimizer=None, manage_wandb=True, step_offset=0):
+    # wandb run  for each experiment (set as optional)
+    if manage_wandb:
+        wandb.init(project="sft", name=run_name, reinit=True)
+        wandb.define_metric("train_step")
+        wandb.define_metric("eval_step")
+        wandb.define_metric("train/*", step_metric="train_step")
+        wandb.define_metric("eval/*", step_metric="eval_step")
 
-    # load model from huggingface
-    model = AutoModelForCausalLM.from_pretrained(
-        "models/Qwen2.5-Math-1.5B",
-        torch_dtype=torch.bfloat16,
-        attn_implementation="flash_attention_2",
-    ).to("cuda:0")
+    # load model from huggingface (change for expert iteration)
+    # load model only when there is none
+    if model is None:
+        model = AutoModelForCausalLM.from_pretrained(
+            MODEL_PATH, torch_dtype=torch.bfloat16, attn_implementation="flash_attention_2",
+        ).to(POLICY_DEVICE)
+    if optimizer is None:
+        optimizer = torch.optim.AdamW(model.parameters(), lr=lr)
     model.train()
-    # load adamW
-    optimizer = torch.optim.AdamW(model.parameters(), lr=lr)
-    # zero gradiant
     optimizer.zero_grad()
-    # initialize weight update
+
+    # initialize step update
     step = 0
     # initialize minibatch loss update
     step_loss = 0
+
+    # evaluate on the math val
+    def evaluate (step_id):
+        load_policy_into_vllm_instance(policy=model, llm=llm)
+        records, summary = log_generations(llm,model,tokenizer,val_prompts,
+                                             val_answers,reward_fn, sampling_params)
+
+        # get back to train
+        model.train()
+
+        # record accuracy
+        accuracy = sum(r["reward"]["answer_reward"] for r in records) / len(records)
+        wandb.log({
+            "eval/accuracy": accuracy,
+            "eval/avg_token_entropy": summary["avg_token_entropy"],
+            "eval/avg_response_length": summary["avg_response_length"],
+            "eval_step": step_id,
+        })
+        print(f"[eval] step {step_id}: accuracy = {accuracy:.4f}")
+        return accuracy
+
+    evaluate(step_offset)
 
     # gradient accumulation
     for idx in range(n_sft_steps * grad_accum_steps):
@@ -110,32 +133,18 @@ def run_sft(run_name, train_data, val_prompts, val_answers, llm, tokenizer, rewa
             optimizer.step()
             # Zero gradients every `gradient_accumulation_steps` batches.
             optimizer.zero_grad()
+            step += 1
             # record
-            wandb.log({"train/loss": step_loss, "train_step": step})
+            wandb.log({"train/loss": step_loss, "train_step": step_offset + step})
             step_loss = 0 # zero loss
 
             # update step, add policy update to vllm
-            if step % eval_every == 0:
-                load_policy_into_vllm_instance(model, llm)
-                records, summary = log_generations(llm, model, tokenizer, val_prompts, val_answers, reward_fn,
-                                                   sampling_params,
-                                                   )
-                model.train()
-                # evaluate accuracy
-                total = 0
-                for r in records:
-                    total += r["reward"]["answer_reward"]
-                accuracy = total / len(records)
+            if step % eval_every == 0 or step == n_sft_steps:
+                evaluate(step_offset + step)
 
-                wandb.log({
-                    "eval/accuracy": accuracy,
-                    "eval/avg_token_entropy": summary["avg_token_entropy"],
-                    "eval/avg_response_length": summary["avg_response_length"],
-                    "eval_step": step,
-                })
-            step += 1 # step +1
-
-    wandb.finish()
+    if manage_wandb:
+        wandb.finish()
+    return model, optimizer, step_offset + step
 
 # args
 import argparse
@@ -155,21 +164,19 @@ if __name__ == "__main__":
     random.seed(107)
 
     tokenizer = AutoTokenizer.from_pretrained(MODEL_PATH)
-    llm = init_vllm(MODEL_PATH, VLLM_DEVICE, seed=0)
+    llm = init_vllm(MODEL_PATH, VLLM_DEVICE, seed=0, gpu_memory_utilization=0.3)
     sampling_params = SamplingParams(
         temperature=1.0, top_p=1.0, max_tokens=1024,
         stop=["</answer>"], include_stop_str_in_output=True,
     )
 
-    sft = read_jsonl("data/sft.jsonl")
     if args.filter_correct:
         sft = [ex for ex in read_jsonl("data/sft_with_gt.jsonl") if ex["correct"]]
         print(f"Filtered dataset size: {len(sft)}")
     else:
         sft = read_jsonl("data/sft.jsonl")
+    random.shuffle(sft)
     train_data = sft if args.n_examples == -1 else sft[:args.n_examples]
-    train_data = sft if args.n_examples == -1 else sft[:args.n_examples]
-    reward_fn = r1_zero_reward_fn
 
     # prompt template
     with open("alignment/prompts/r1_zero.prompt", "r", encoding="utf-8") as f:

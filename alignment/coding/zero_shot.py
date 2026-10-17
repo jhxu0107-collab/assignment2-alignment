@@ -26,7 +26,7 @@ def load_math_examples(data_path, prompt_path):
     return examples
 
 # generate response and evaluate
-def evaluate_vllm(llm, reward_fn, examples, sampling_params, output_path):
+def evaluate_vllm(llm, reward_fn, examples, sampling_params, output_path=None):
     """
     Evaluate a language model on a list of prompts,
     compute evaluation metrics, and serialize results to disk.
@@ -39,11 +39,10 @@ def evaluate_vllm(llm, reward_fn, examples, sampling_params, output_path):
 
     # (4) evaluate
     for ex, out in zip(examples, outputs):
-        # generate text
-        response = out.outputs[0].text
-        # get reward
-        reward = reward_fn(response,ex['ground_truth'])
-        results.append({**ex, "response": response, **reward})
+        for candidate in out.outputs:  #  1 or g answers # changed for expert iteration
+            response = candidate.text
+            reward = reward_fn(response, ex["ground_truth"])
+            results.append({**ex, "response": response, **reward})
 
     n = len(results)
     metrics = {
@@ -62,17 +61,29 @@ def evaluate_vllm(llm, reward_fn, examples, sampling_params, output_path):
     return results, metrics
 
 if __name__ == "__main__":
+    import sys
+    limit = int(sys.argv[1]) if len(sys.argv) > 1 else None
+
     examples = load_math_examples(data_path="data/MATH/validation.jsonl",
                                   prompt_path="alignment/prompts/r1_zero.prompt")
+    if limit:
+        examples = examples[:limit]
+    print(f"Evaluating {len(examples)} examples")
 
-    llm = LLM(model="models/Qwen2.5-Math-1.5B")
+    llm = LLM(
+        model="Qwen/Qwen2.5-Math-1.5B",
+        dtype="bfloat16",
+        gpu_memory_utilization=0.8,
+        max_model_len=2048,
+    )
     sampling_params = SamplingParams(
         temperature=1.0, top_p=1.0, max_tokens=1024,
         stop=["</answer>"], include_stop_str_in_output=True,
     )
 
+    output_path = "zero_shot_results_test.jsonl" if limit else "zero_shot_results.jsonl"
     results, metrics = evaluate_vllm(
-        llm, r1_zero_reward_fn, examples, sampling_params, "zero_shot_results.jsonl",
+        llm, r1_zero_reward_fn, examples, sampling_params, output_path,
     )
     print(metrics)
 
