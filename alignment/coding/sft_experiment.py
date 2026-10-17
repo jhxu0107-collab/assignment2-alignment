@@ -58,7 +58,7 @@ def init_vllm(model_id: str, device: str, seed: int, gpu_memory_utilization: flo
 def run_sft(run_name, train_data, val_prompts, val_answers, llm, tokenizer, reward_fn,
             sampling_params, lr, microbatch_size, grad_accum_steps, n_sft_steps, eval_every,
             model=None, optimizer=None, manage_wandb=True, step_offset=0):
-    # wandb run  for each experiment (set as optional)
+    # wandb run  for each experiment 
     if manage_wandb:
         wandb.init(project="sft", name=run_name, reinit=True)
         wandb.define_metric("train_step")
