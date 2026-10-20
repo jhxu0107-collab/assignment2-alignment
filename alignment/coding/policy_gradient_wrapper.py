@@ -1,5 +1,7 @@
+import torch
+from typing import Literal
 from alignment.coding.compute_naive_policy_loss import compute_naive_policy_gradient_loss
-from alignment.coding.grpo_clip.loss import compute_grpo_clip_loss
+from alignment.coding.grpo_clip_loss import compute_grpo_clip_loss
 def compute_policy_gradient_loss(
 policy_log_probs: torch.Tensor,
 loss_type: Literal["no_baseline", "reinforce_with_baseline", "grpo_clip"],

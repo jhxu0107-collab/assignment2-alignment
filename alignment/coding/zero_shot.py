@@ -54,9 +54,10 @@ def evaluate_vllm(llm, reward_fn, examples, sampling_params, output_path=None):
         "format0_answer0": sum(r["format_reward"] == 0 and r["answer_reward"] == 0 for r in results),
     }
     # (5) serialize examples, generations, and scores
-    with open(output_path, "w", encoding="utf-8") as f:
-        for r in results:
-            f.write(json.dumps(r, ensure_ascii=False) + "\n")
+    if output_path is not None:
+        with open(output_path, "w", encoding="utf-8") as f:
+            for r in results:
+                f.write(json.dumps(r, ensure_ascii=False) + "\n")
 
     return results, metrics
 

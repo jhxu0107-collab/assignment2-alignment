@@ -45,9 +45,6 @@ def expert_iteration_experiment(run_name, model, optimizer, llm, tokenizer,
             "ei_step": ei_step,  # step
         })
 
-        # ff and backward using correct
-        sft = run_sft(train_data=correct)
-
         # SFT on the correct outputs, continuing from the current model
         # how many weights
         n_sft_steps = max(1, epochs * len(sft_data) // (microbatch_size * grad_accum_steps))
@@ -56,6 +53,7 @@ def expert_iteration_experiment(run_name, model, optimizer, llm, tokenizer,
             eval_sampling_params, lr, microbatch_size, grad_accum_steps, n_sft_steps,
             eval_every=n_sft_steps,  # evaluate only at the end of each EI step
             model=model, optimizer=optimizer, manage_wandb=False, step_offset=global_step,
+            eval_at_start=(ei_step == 0),  # later steps would repeat the previous step's final eval
         )
 
     wandb.finish()
@@ -75,6 +73,12 @@ if __name__ == "__main__":
     parser.add_argument("--eval_every", type=int, default=25)
     parser.add_argument("--n_val", type=int, default=200)
     parser.add_argument("--seed", type=int, default=107)
+    # expert iteration settings
+    parser.add_argument("--G", type=int, default=4)  # rollouts per question
+    parser.add_argument("--epochs", type=int, default=2)  # SFT epochs on each EI step's correct samples
+    parser.add_argument("--ei_batch_size", type=int, default=1024)  # questions per EI step
+    parser.add_argument("--n_ei_steps", type=int, default=5)
+    parser.add_argument("--vllm_mem", type=float, default=0.3)
     args = parser.parse_args()
 
     random.seed(args.seed)
@@ -88,9 +92,9 @@ if __name__ == "__main__":
     val_answers = [ex["ground_truth"] for ex in val_examples]
 
     tokenizer = AutoTokenizer.from_pretrained(MODEL_PATH)
-    llm = init_vllm(MODEL_PATH, VLLM_DEVICE, seed=args.seed)
+    llm = init_vllm(MODEL_PATH, VLLM_DEVICE, seed=args.seed, gpu_memory_utilization=args.vllm_mem)
     model = AutoModelForCausalLM.from_pretrained(
-        MODEL_PATH, torch_dtype=torch.bfloat16, attn_implementation="flash_attention_2",
+        MODEL_PATH, torch_dtype=torch.bfloat16, attn_implementation="sdpa",
     ).to(POLICY_DEVICE)
     optimizer = torch.optim.AdamW(model.parameters(), lr=args.lr)
 
@@ -99,6 +103,12 @@ if __name__ == "__main__":
     ei_sampling_params = SamplingParams(
         temperature=1.0, top_p=1.0, max_tokens=1024, min_tokens=sampling_min_tokens,
         n=args.G, seed=args.seed,
+        stop=["</answer>"], include_stop_str_in_output=True,
+    )
+
+    # evaluation: one sample per validation question, same settings as the SFT evaluation
+    eval_sampling_params = SamplingParams(
+        temperature=1.0, top_p=1.0, max_tokens=1024,
         stop=["</answer>"], include_stop_str_in_output=True,
     )
 

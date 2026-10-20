@@ -17,7 +17,7 @@ def tokenize_prompt_and_output(prompt_strs, output_strs, tokenizer):
         ids = prompt_token_ids + response_token_ids
 
         # mask response token as 1, otherwise 0
-        mask = [0] * len(prompt_token_ids) + [1] * (response_token_ids)
+        mask = [0] * len(prompt_token_ids) + [1] * len(response_token_ids)
 
         # add
         all_ids.append(ids)
@@ -37,8 +37,8 @@ def tokenize_prompt_and_output(prompt_strs, output_strs, tokenizer):
 
 
     # save as tensor
-    all_masks = torch.Tensor(all_masks, dtype=torch.long)
-    all_ids = torch.Tensor(all_ids, dtype=torch.long)
+    all_masks = torch.tensor(all_masks, dtype=torch.long)
+    all_ids = torch.tensor(all_ids, dtype=torch.long)
 
     # shift by one position
     return {

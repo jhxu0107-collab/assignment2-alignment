@@ -22,7 +22,7 @@ def read_jsonl(path):
                 data.append(json.loads(line))
     return data
 
-MODEL_PATH = "models/Qwen2.5-Math-1.5B"
+MODEL_PATH = "Qwen/Qwen2.5-Math-1.5B"
 POLICY_DEVICE = "cuda:0"
 VLLM_DEVICE = "cuda:0"
 
@@ -57,8 +57,8 @@ def init_vllm(model_id: str, device: str, seed: int, gpu_memory_utilization: flo
 # define experiment
 def run_sft(run_name, train_data, val_prompts, val_answers, llm, tokenizer, reward_fn,
             sampling_params, lr, microbatch_size, grad_accum_steps, n_sft_steps, eval_every,
-            model=None, optimizer=None, manage_wandb=True, step_offset=0):
-    # wandb run  for each experiment 
+            model=None, optimizer=None, manage_wandb=True, step_offset=0, grad_ckpt=False, eval_at_start=True):
+    # wandb run  for each experiment
     if manage_wandb:
         wandb.init(project="sft", name=run_name, reinit=True)
         wandb.define_metric("train_step")
@@ -70,8 +70,12 @@ def run_sft(run_name, train_data, val_prompts, val_answers, llm, tokenizer, rewa
     # load model only when there is none
     if model is None:
         model = AutoModelForCausalLM.from_pretrained(
-            MODEL_PATH, torch_dtype=torch.bfloat16, attn_implementation="flash_attention_2",
+            MODEL_PATH, torch_dtype=torch.bfloat16, attn_implementation="sdpa",
         ).to(POLICY_DEVICE)
+    if grad_ckpt:
+        # SFT sequences reach ~27k tokens; recompute activations to fit in GPU memory
+        model.gradient_checkpointing_enable()
+        model.config.use_cache = False
     if optimizer is None:
         optimizer = torch.optim.AdamW(model.parameters(), lr=lr)
     model.train()
@@ -102,7 +106,8 @@ def run_sft(run_name, train_data, val_prompts, val_answers, llm, tokenizer, rewa
         print(f"[eval] step {step_id}: accuracy = {accuracy:.4f}")
         return accuracy
 
-    evaluate(step_offset)
+    if eval_at_start:  # expert iteration only needs this at its first step
+        evaluate(step_offset)
 
     # gradient accumulation
     for idx in range(n_sft_steps * grad_accum_steps):
@@ -160,11 +165,14 @@ if __name__ == "__main__":
     parser.add_argument("--n_val", type=int, default=200)
     # filter correct answers
     parser.add_argument("--filter_correct", action="store_true")
+    # memory options (the SFT traces are very long)
+    parser.add_argument("--grad_ckpt", action="store_true")
+    parser.add_argument("--vllm_mem", type=float, default=0.5)
     args = parser.parse_args()
     random.seed(107)
 
     tokenizer = AutoTokenizer.from_pretrained(MODEL_PATH)
-    llm = init_vllm(MODEL_PATH, VLLM_DEVICE, seed=0, gpu_memory_utilization=0.3)
+    llm = init_vllm(MODEL_PATH, VLLM_DEVICE, seed=0, gpu_memory_utilization=args.vllm_mem)
     sampling_params = SamplingParams(
         temperature=1.0, top_p=1.0, max_tokens=1024,
         stop=["</answer>"], include_stop_str_in_output=True,
@@ -199,7 +207,7 @@ if __name__ == "__main__":
 
     run_sft(run_name, train_data, val_prompts, val_answers, llm, tokenizer, reward_fn, sampling_params,
             lr=args.lr, microbatch_size=args.microbatch_size, grad_accum_steps=args.grad_accum_steps,
-            n_sft_steps=args.n_sft_steps, eval_every=args.eval_every)
+            n_sft_steps=args.n_sft_steps, eval_every=args.eval_every, grad_ckpt=args.grad_ckpt)
 
 
 

@@ -1,7 +1,11 @@
 import json
 import re
 from alignment.drgrpo_grader import r1_zero_reward_fn, extract_answer
-answer = {}
+def norm(text):
+    # remove all whitespace and lowercase, so question strings match across formatting differences
+    return re.sub(r"\s+", "", text).lower()
+
+answers = {}
 # use gt in math as gt
 with open("data/MATH/train.jsonl", "r", encoding="utf-8") as f:
     for line in f:
@@ -9,15 +13,15 @@ with open("data/MATH/train.jsonl", "r", encoding="utf-8") as f:
             continue
         ex = json.loads(line)
         # extract answer
-        answer = extract_answer(ex["solution"])
-        if answer is not None:
-            answers[norm(ex["problem"])] = answer
+        gt_answer = extract_answer(ex["solution"])
+        if gt_answer is not None:
+            answers[norm(ex["problem"])] = gt_answer
 
 # get the prefix and suffix
 with open("alignment/prompts/r1_zero.prompt", "r", encoding="utf-8") as f:
     pre, suf = f.read().split("{question}")
 
-example = []
+examples = []
 with open("data/sft.jsonl", "r", encoding="utf-8") as f:
     for line in f:
         if not line.strip():

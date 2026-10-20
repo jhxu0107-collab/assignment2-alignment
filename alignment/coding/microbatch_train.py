@@ -1,5 +1,5 @@
 from alignment.coding.policy_gradient_wrapper import compute_policy_gradient_loss
-from alignment.coding.masked_mean import mased_mean
+from alignment.coding.masked_mean import masked_mean
 import torch
 from typing import Literal
 def grpo_microbatch_train_step(

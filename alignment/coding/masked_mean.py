@@ -1,3 +1,4 @@
+import torch
 def masked_mean(
 tensor: torch.Tensor,
 mask: torch.Tensor,
